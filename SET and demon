@@ -1,0 +1,214 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sat May 11 16:54:19 2024
+
+@author: mdrc0
+"""
+
+
+import numpy as np
+from scipy.integrate import odeint
+import  matplotlib.pyplot as plt
+
+def fermi(beta, mu, epsilon):
+    return 1/(1+np.exp(beta*(epsilon-mu)))
+def p_d(p): #calculates marginal of the demon
+    return np.transpose(np.array([p[:,0]+p[:,2], p[:,1]+p[:,3] ]))
+def p_s(p): #marginal of the system
+    return np.transpose(np.array([p[:,0]+p[:,1], p[:,2]+p[:,3] ]))
+
+def corrtdf(i): #relates state i of the total system (s+d) 0,1,2,3 to state of the demon
+    if i==0 or i==2:
+        return 0
+    if i==1 or i==3:
+        return 1
+def corrtsf(i): #relates state i of the total system (s+d) 0,1,2,3 to state of the system (SET)
+    if i==0 or i==1:
+        return 0
+    if i==2 or i==3:
+        return 1
+
+t_star = 10
+numdt=100000
+t = np.linspace(0, t_star, numdt)
+dt=t[1]-t[0]
+
+#The first block of constants are the variables one can choose freely. 
+#The lower block of constants ensures the desired relations between the
+#variables are satisfied. Not for all values of the first block one can extract work
+
+Gamma=1
+beta=0.1
+epsilon_d=1
+V=10
+delta=np.log(2)
+
+
+beta_d=8000*beta
+beta_l, beta_r = beta, beta
+epsilon_s=1/beta
+U=1/(1000*beta)
+mu_d=epsilon_d+U/2
+mu_l=epsilon_s+V/2
+mu_r=epsilon_s-V/2
+Gamma_d=100*Gamma
+Gamma_l = np.exp(delta)*Gamma
+Gamma_r = np.exp(-delta)*Gamma
+Gamma_du = Gamma_d
+Gamma_lu = np.exp(-delta)*Gamma
+Gamma_ru = np.exp(delta)*Gamma
+error=1/(1+np.exp(beta_d*U/2)) #as defined in phd, p(d=0|s=1)=p(d=1|s=0)
+
+#normalization constants
+I_max=np.log(2)
+Power_norm=Gamma*V
+ 
+#beta_d, beta_l, beta_r, mu_d, mu_l, mu_r, Gamma_d, Gamma_l, Gamma_r, Gamma_du, Gamma_lu, Gamma_ru, U, epsilon_s, epsilon_d  =ctt[0], ctt[1], ctt[2], ctt[3], ctt[4], ctt[5], ctt[6], ctt[7], ctt[8], ctt[9], ctt[10], ctt[11], ctt[12], ctt[13], ctt[14] 
+f_d, f_l, f_r, f_du, f_lu, f_ru = fermi(beta_d,mu_d,epsilon_d), fermi(beta_l, mu_l,epsilon_s), fermi(beta_r, mu_r,epsilon_s), fermi(beta_d, mu_d,epsilon_d+U), fermi(beta_l, mu_l,epsilon_s+U), fermi(beta_r, mu_r,epsilon_s+U)
+gamma_d, gamma_l, gamma_r, gamma_dbar, gamma_lbar, gamma_rbar, gamma_du, gamma_lu, gamma_ru, gamma_dubar, gamma_lubar, gamma_rubar = Gamma_d*f_d, Gamma_l*f_l, Gamma_r*f_r, Gamma_d*(1-f_d), Gamma_l*(1-f_l), Gamma_r*(1-f_r), Gamma_du*f_du, Gamma_lu*f_lu, Gamma_ru*f_ru, Gamma_du*(1-f_du), Gamma_lu*(1-f_lu), Gamma_ru*(1-f_ru) 
+
+
+
+#rate matrix
+W_d = np.array([[-gamma_d, gamma_dbar,0, 0],[gamma_d, -gamma_dbar, 0, 0],[0, 0, -gamma_du, gamma_dubar],[0,0,gamma_du, -gamma_dubar]])
+W_l = np.array([[-gamma_l, 0, gamma_lbar, 0],[0, -gamma_lu, 0, gamma_lubar],[gamma_l, 0, -gamma_lbar, 0],[0,gamma_lu,0, -gamma_lubar]])
+W_r= np.array([[-gamma_r,0, gamma_rbar, 0],[0, -gamma_ru, 0, gamma_rubar],[gamma_r, 0, -gamma_rbar, 0],[0,gamma_ru,0, -gamma_rubar]])
+Warr = [W_d, W_l, W_r]
+W=W_d+W_l+W_r
+
+#time evolution with intervention
+p0_0=1/3
+pE_0=3/10
+p1_0=1-p0_0
+pF_0=1-pE_0
+
+p0E_0, p1E_0, p0F_0, p1F_0 = p0_0*pE_0, p1_0*pE_0, p0_0*pF_0,p1_0*pF_0 #initial conditions
+p0 = np.array([p0E_0, p1E_0, p0F_0, p1F_0])
+
+
+def dp_dt(P, t):
+    return np.dot(W, P)
+
+p_old = odeint(dp_dt, p0, t)
+p_d_old = p_d(p_old)
+p_s_old = p_s(p_old)
+
+for i in range(4): #intervention
+    p0[i]=p_d_old[-1,corrtdf(i)]*p_s_old[-1,corrtsf(i)]
+
+p_new=odeint(dp_dt, p0, t)
+p_d_new = p_d(p_new)
+p_s_new = p_s(p_new)
+
+
+states = [[0,0],[1,0],[0,1],[1,1]]
+
+def N(x):
+    return x[0]+x[1]
+def I_nu_M_xxprime(x,xprime,nu,p):
+    return (N(states[x])-N(states[xprime]))*(Warr[nu][x][xprime]*p[:,xprime]-Warr[nu][xprime][x]*p[:,x])
+def dotW_function(p): 
+    
+    I_M_arraux=[0,0,0]
+    
+    for nu in range(0,3):
+        x = 0
+        xprime = 1
+        while x<4:
+               while xprime<4:
+                   I_M_arraux[nu]+=I_nu_M_xxprime(x,xprime,nu,p)
+                   xprime+=1
+               x+=1
+               xprime=x+1
+    return (mu_d*I_M_arraux[0]+mu_l*I_M_arraux[1]+mu_r*I_M_arraux[2])
+def I(p):
+    
+    p_daux=p_d(p)
+    p_saux=p_s(p)
+    I_aux=0
+    for i in range(4):
+        I_aux+=p[:,i]*np.log(p[:,i]/(p_daux[:,corrtdf(i)]*p_saux[:,corrtsf(i)]))
+    return I_aux
+
+
+a=50
+b=1000
+start=numdt-a
+stop=numdt+b
+p_aroundtstar=np.concatenate((p_old[-a:,:],p_new[:b,:]), axis=0)
+I_aroundtstar=I(p_aroundtstar)
+dotW_aroundtstar=dotW_function(p_aroundtstar)
+
+
+
+t_aroundtstar=np.concatenate((t,t+t_star))[start:stop]
+minusdotW_aroundtstar=-dotW_aroundtstar
+minusdotW_aroundtstar_rescaled=((np.max(I_aroundtstar))/np.max(np.abs(minusdotW_aroundtstar)))*minusdotW_aroundtstar
+
+#Steady state stuff
+
+# Compute eigenvalues and eigenvectors
+eigenvalues, eigenvectors = np.linalg.eig(W)
+# Find the index of eigenvalue 0
+zero_eigenvalue_index = np.where(np.isclose(eigenvalues, 0))[0]
+# Get the eigenvectors corresponding to eigenvalue 0
+eigenvector_zero = eigenvectors[:, zero_eigenvalue_index]
+eigenvector_zero=eigenvector_zero/(np.sum(eigenvector_zero))
+#Calculate dotW @ ss
+p_ss=np.zeros(4)
+for i in range(0,4):
+   p_ss[i]=eigenvector_zero[i][0]
+pss_array=np.tile(p_ss, (105, 1))
+
+dotWss_array=dotW_function(pss_array)
+dotW_ss=dotWss_array[0]
+minusdotW_ss=-dotW_ss
+I_aroundtstar_norm=I_aroundtstar/I_max
+
+eta_1=max(dotW_aroundtstar[a]/dotW_aroundtstar[a-1],0)
+
+
+minusdotW_new=-dotW_function(p_new)
+minusW_true=0
+for i in range(numdt):
+    minusW_true+=minusdotW_new[i]*dt
+    
+W_lost=-dotW_ss*t_star-minusW_true
+
+E_before=p_old[-1,1]*epsilon_d+p_old[-1,2]*epsilon_s+p_old[-1,3]*(epsilon_d+epsilon_s+U)
+E_after=p_new[0,1]*epsilon_d+p_new[0,2]*epsilon_s+p_new[0,3]*(epsilon_d+epsilon_s+U)
+
+
+eta_2=abs((E_after-E_before)/W_lost)
+
+
+eta_2_sci=f'{eta_2:.1e}'
+
+# Create the figure and the primary axes
+fig, ax1 = plt.subplots()
+
+# Plot the first dataset on the primary axes
+ax1.plot(t_aroundtstar, I_aroundtstar_norm, label="I around tstar", color='blue')
+ax1.set_xlabel("Time" + r'$(\Gamma^{-1})$')
+ax1.set_ylabel(r'$I(I_{max})$', color='blue')
+ax1.tick_params(axis='y')
+
+# Create a twin axes sharing the same x-axis
+ax2 = ax1.twinx()
+
+# Plot the second dataset on the twin axes
+ax2.plot(t_aroundtstar, minusdotW_aroundtstar/Power_norm, color='darkorange')
+ax2.set_ylabel(r'$-P_{ch}(\Gamma V)$', color='darkorange')
+ax2.tick_params(axis='y')
+
+# Add a horizontal line to the primary axes
+
+ax2.axhline(y=minusdotW_ss/Power_norm, color='darkorange', linestyle='--')
+
+
+legend = plt.legend(title=r"$\eta_1 = $" + str(eta_1)+'\n'+r"$\eta_2 = $"+str(eta_2_sci), fontsize='large')
+plt.setp(legend.get_title(), fontsize='large')
+#Save the figure
+filename=f'I&P_beta_{beta:.3f}_betaU{beta*U:.5f}.png'
+plt.savefig(filename, dpi=300, bbox_inches='tight')
+plt.show()
