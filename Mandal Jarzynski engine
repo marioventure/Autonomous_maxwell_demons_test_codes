@@ -1,0 +1,202 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Jul 22 18:26:40 2024
+
+@author: mdrc0
+"""
+
+import numpy as np
+from scipy.integrate import odeint
+import  matplotlib.pyplot as plt
+
+#correspondence state dr being 0,...,5 with d being 0,1,2 r being 0,1. r stands for register(string of bits)
+def corr_sdf(i):
+    if i==0 or i==3:
+        return 0
+    if i==1 or i==4:
+        return 1
+    if i==2 or i==5:
+        return 2
+def corr_srf(j):
+    if j==0 or j==1 or j==2:
+        return 0
+    if j==3 or j==4 or j==5:
+        return 1
+    
+def dp_dt(P, t): #to integrate
+    return np.dot(W, P)
+def p_dfunction(p): #return marginal demon given p_dr p
+    return np.transpose(np.array([p[:,0]+p[:,3],p[:,1]+p[:,4],p[:,2]+p[:,5]]))
+def p_rfunction(p): #return marginal register given p_dr p
+    return np.transpose(np.array([p[:,0]+p[:,1]+p[:,2],p[:,3]+p[:,4]+p[:,5]]))
+ 
+def I(p): #calculate mutual information
+    p_daux=p_dfunction(p)
+    p_raux=p_rfunction(p)
+    I_aux=p[:,0]*np.log(p[:,0]/(p_daux[:,corr_sdf(0)]*p_raux[:,corr_srf(0)]))
+    for i in range(1,6):
+        I_aux+=p[:,i]*np.log(p[:,i]/(p_daux[:,corr_sdf(i)]*p_raux[:,corr_srf(i)]))
+    return I_aux
+
+def W_function(p):
+    
+    deltaprime_array_function=p_rfunction(p)[:,0]-p_rfunction(p)[:,1]
+    delta_array_function=np.full(len(deltaprime_array_function),delta)
+    phi_function=(delta_array_function-deltaprime_array_function)/2
+    W_array_function=(f/beta)*phi_function
+    return W_array_function
+
+def dotW_function(x, y):
+    # Calculate the differences in time values
+    difft = np.diff(x)
+    
+    # Calculate the differences in quantity values
+    dy = np.diff(y)
+    
+    # Calculate the derivative (change in quantity over change in time)
+    derivative = dy / difft
+    
+    return derivative
+
+
+#The first block of constants are the variables one can choose freely. 
+#The lower block of constants ensures the desired relations between the
+#variables are satisfied. Not for all values of the first block one can extract work
+epsilon=0.2
+tau=10
+delta=0.5
+beta=0.1
+
+f=2*np.arctanh(epsilon)
+
+
+#exact periodic steady state (pss) stuff 
+a=np.cosh(np.sqrt(3)*tau)
+b=np.sinh(np.sqrt(3)*tau)
+
+K=np.exp(-2*tau)*((1+8*a+4*np.sqrt(3)*b)-(2+7*a+4*np.sqrt(3)*b)*np.exp(-2*tau))/(3-(2+a)*np.exp(-2*tau))
+J=(1-np.exp(-tau))*((2*np.exp(-2*tau)*(a+np.sqrt(3)*b-1))**2)/((3*(1-epsilon*delta*np.exp(-tau))-(1-epsilon*delta)*(2+a)*np.exp(-2*tau))*(3-(2+a)*np.exp(-2*tau)))
+
+c=2-np.sqrt(3)
+d=2+np.sqrt(3)
+sigma=np.exp(-tau)
+G=4*(sigma**2)+sigma**c+sigma**d
+H=np.sqrt(3)*(sigma**c-sigma**d)
+L=2*(sigma**2)-sigma**c-sigma**d
+N=(delta-epsilon)*(H-L)/(6-G+epsilon*delta*(G-6*sigma))
+q_pss=(1/3)*np.array([1+N,1,1-N]) #exact periodic steady state demon distribution at the end/beggining of interaction interval
+
+#probabilities for the bit before interaction
+p_0=(delta+1)/2
+p_1=(1-delta)/2
+p_r_0=np.array([p_0,p_1]) #r stands for register. r=0 or 1
+
+numdt=1000
+
+I_norm=np.log(2)
+
+
+W=np.array([[-1,1,0,0,0,0],[1,-2,1,0,0,0],[0,1,-2+epsilon,1+epsilon,0,0],[0,0,1-epsilon,-2-epsilon,1,0],[0,0,0,1,-2,1],[0,0,0,0,1,-1]])
+
+t = np.linspace(0, tau, numdt)
+dt=t[1]-t[0]
+
+p_dr_pss=np.concatenate((p_0*q_pss, p_1*q_pss)) #d corresponds to the demon state A,B or C. This is the joint pss distribution
+p_dr_0=np.copy(p_dr_pss)#joint initial conditions
+
+''' This block gives the evolution without intervention. One should comment the loop for i in range(0,n_intervention) if one wants to run this part
+p_dr=odeint(dp_dt, p_dr_0, t) 
+
+I_noint_scaled=I(p_dr)/I_norm
+W_noint=W_function(p_dr)
+dotW_noint=dotW_function(t,W_noint)*tau
+
+W_noint_rescaled=(np.max(I_noint_scaled)/np.max(np.abs(W_noint)))*W_noint
+dotW_noint_rescaled=(np.max(I_noint_scaled)/np.max(np.abs(dotW_noint)))*dotW_noint
+
+plt.figure(figsize=(8,4.8))
+plt.ticklabel_format(axis='y', style='sci', scilimits=(-1,1))
+plt.xlabel("Time"+r'$(\tau)$')
+plt.ylabel(r'$I(I_{max})$', c='b')
+plt.plot((t/tau)[:-1], I_noint_scaled[:-1], color="blue", label="I")
+plt.plot((t/tau)[:-1], W_noint_rescaled[:-1], color= 'darkgreen', label="W")
+plt.plot((t/tau)[:-1], dotW_noint_rescaled, color='darkorange', label="P")
+plt.legend(fontsize='large')
+#plt.plot(t_all_cut,deltaprime_cut_rescaled,'o', color='magenta', label=r"$\delta'$")
+#plt.savefig("Noint", dpi=300, bbox_inches='tight')
+plt.show()
+'''
+
+steps_intervention=np.array([20,60,200]) #choosing the step at which one does the intervention
+n_interventions=len(steps_intervention)
+
+
+
+a=0
+b=1
+c=2
+timesfiner=1000 #after the intervention, we did the discretization of time finer in case the sudden comeback of power extraction was due to a too coarse discretization. We found it was not the case.
+delta_array_onebit=np.full((b+a)*timesfiner,delta)
+
+for i in range(0,n_interventions): #loop calculating evolution and doing the plots for the different times of intervention
+
+    step_intervention=steps_intervention[i]
+    step_start=max(0,step_intervention-a)
+    step_stop=step_intervention+b
+    
+    t_a=step_start*dt
+    t_b=step_stop*dt
+    
+    t_preint=t[:step_start]
+    t_int=np.linspace(t_a,t_b,(step_stop-step_start)*timesfiner) #the finer time discretization, used around the time of intervention
+    t_postint=t[step_stop:]
+    dt_int=t_int[1]-t_int[0]
+
+    #preint
+    p_dr_preint=odeint(dp_dt, p_dr_0,t_preint)
+    
+    
+    #int
+    for j in range(6): #intervention
+            p_dr_0[j]=np.copy((p_rfunction(p_dr_preint)[-1,corr_srf(j)])*(p_dfunction(p_dr_preint)[-1,corr_sdf(j)]))
+            
+    p_dr_int=odeint(dp_dt, p_dr_0,t_int)
+   
+    
+    p_dr_0=np.copy(p_dr_int[-1,:])
+    #postint 
+    p_dr_postint=odeint(dp_dt, p_dr_0, t_postint)
+    p_dr_postint=p_dr_postint[1:,:]
+    t_postint=t_postint[1:]
+    
+    #the qualifying lastbit comes from the fact that, at first, we did not start from the exact pss distribution, but let the system interact with a handful of bits. Once they reached the pss we applied the intervention, thats why it was called lastbit. The name remained for simplicity in the coding
+    p_dr_lastbit=np.concatenate((p_dr_preint,p_dr_int,p_dr_postint), axis=0)
+  
+    
+    W_lastbit=W_function(p_dr_lastbit)
+ 
+    t_lastbit=np.concatenate((t_preint,t_int,t_postint))
+    I_lastbit_scaled=I(p_dr_lastbit)/I_norm
+    dotW_lastbit=dotW_function(t_lastbit,W_lastbit)*tau
+ 
+    
+    
+    #alllastbit
+    W_lastbit_rescaled=(np.max(I_lastbit_scaled)/np.max(np.abs(W_lastbit)))*W_lastbit
+    dotW_lastbit_rescaled=(np.max(I_lastbit_scaled)/np.max(np.abs(dotW_lastbit)))*dotW_lastbit
+    
+    plt.figure(figsize=(8,4.8))
+    plt.ticklabel_format(axis='y', style='sci', scilimits=(-1,1))
+    plt.xlabel("Time"+r'$(\tau)$')
+    plt.ylabel(r'$I(I_{max})$', c='b')
+    plt.plot((t_lastbit/tau)[:-1], I_lastbit_scaled[:-1], color="blue", label="I")
+    plt.plot((t_lastbit/tau)[:-1], W_lastbit_rescaled[:-1], color= 'darkgreen', label="W")
+    plt.plot((t_lastbit/tau)[:-1], dotW_lastbit_rescaled, color='darkorange', label="P")
+  
+    plt.legend(title=r"$t*=$"+str(np.format_float_positional(step_intervention*dt/tau, precision=2, unique=False, fractional=False, trim='k')), fontsize='large')       
+    filename=f'All_last_bit_Intervention_at_{step_intervention*dt/tau:.3f}.png'
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
+    plt.show()
+    
+
+    p_dr_0=np.copy(p_dr_pss)
